@@ -136,11 +136,7 @@ def parse_faktur(pdf_file):
         # --- 2. PEMISAHAN BLOK PENJUAL & PEMBELI ---
         pkp_nama, pkp_alamat, pkp_npwp, pkp_nitku = None, None, None, None
         pem_nama, pem_alamat, pem_npwp, pem_nik, pem_nitku = (
-            None,
-            None,
-            None,
-            None,
-            None,
+            None, None, None, None, None,
         )
 
         split_pembeli = re.split(
@@ -582,38 +578,32 @@ elif menu == "Rename Bukpot Unifikasi":
                 type="primary"
             )
 
-# ==========================================
-# 3. KALKULATOR PAJAK (PPN & PPH)
-# ==========================================
+# 3. KALKULATOR PAJAK (SIMPLE & CLEAN VERSION)
 elif menu == "Kalkulator Pajak (PPN & PPh)":
-    st.header("🧮 Kalkulator Pajak (PPN & PPh)")
-    st.caption(
-        "Hitung otomatis DPP, PPN, PPh, dan Net Payment dari DPP maupun Nilai"
-        " Inklusif (Gross)."
-    )
+    st.header("🧮 Kalkulator Pajak (PPN 12% & PPh)")
+    st.caption("Hitung otomatis DPP, PPN 12%, PPh, dan Net Payment secara instan.")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        calc_mode = st.radio(
-            "Metode Perhitungan",
-            [
-                "Dari DPP (Dasar Pengenaan Pajak)",
-                "Dari Total Inklusif PPN (Gross)",
-            ],
+        # Pilihan acuan input nominal
+        tipe_input = st.radio(
+            "Nominal yang Dimasukkan Adalah:",
+            ["Nilai DPP (Dasar Pengenaan Pajak)", "Nilai Gross (Inklusif PPN 12%)"]
         )
+        
         input_val = st.number_input(
             "Masukkan Nominal (Rp)",
             min_value=0.0,
             value=1000000.0,
             step=50000.0,
+            format="%.2f"
         )
 
     with col2:
-        tarif_ppn = st.number_input(
-            "Tarif PPN (%)", min_value=0.0, max_value=100.0, value=12.0, step=0.5
-        )
-
+        # Tarif PPN dikunci otomatis 12%
+        TARIF_PPN = 12.0
+        
         pph_options = {
             "Tanpa PPh": 0.0,
             "PPh 23 - Jasa / Sewa Harta (2%)": 2.0,
@@ -622,7 +612,7 @@ elif menu == "Kalkulator Pajak (PPN & PPh)":
             "PPh 4(2) - Jasa Konstruksi (1.75%)": 1.75,
             "PPh 4(2) - Jasa Konstruksi (2.65%)": 2.65,
             "PPh 4(2) - Jasa Konstruksi (4%)": 4.0,
-            "Custom": -1.0,
+            "Custom": -1.0
         }
         selected_pph = st.selectbox("Jenis PPh", list(pph_options.keys()))
 
@@ -632,31 +622,34 @@ elif menu == "Kalkulator Pajak (PPN & PPh)":
                 min_value=0.0,
                 max_value=100.0,
                 value=2.0,
-                step=0.1,
+                step=0.1
             )
         else:
             tarif_pph_val = pph_options[selected_pph]
 
-    if calc_mode == "Dari DPP (Dasar Pengenaan Pajak)":
+    # --- RUMUS PERHITUNGAN OTOMATIS ---
+    if tipe_input == "Nilai DPP (Dasar Pengenaan Pajak)":
         dpp = input_val
     else:
-        dpp = input_val / (1 + (tarif_ppn / 100))
+        # Grossup / Back-calculate DPP dari nilai inklusif PPN 12%
+        dpp = input_val / (1 + (TARIF_PPN / 100))
 
-    ppn = dpp * (tarif_ppn / 100)
+    ppn = dpp * (TARIF_PPN / 100)
     pph = dpp * (tarif_pph_val / 100)
-    total_bruto = dpp + ppn
-    net_payment = total_bruto - pph
+    total_tagihan = dpp + ppn
+    net_payment = total_tagihan - pph
 
+    # --- DISPLAY HASIL PERHITUNGAN ---
     st.markdown("---")
     st.subheader("📊 Hasil Perhitungan")
 
     m1, m2, m3 = st.columns(3)
     m1.metric("DPP (Dasar Pengenaan Pajak)", f"Rp {dpp:,.2f}")
-    m2.metric(f"PPN ({tarif_ppn:.1f}%)", f"Rp {ppn:,.2f}")
+    m2.metric(f"PPN ({TARIF_PPN:.0f}%)", f"Rp {ppn:,.2f}")
     m3.metric(f"PPh ({tarif_pph_val:.2f}%)", f"Rp {pph:,.2f}")
 
     m4, m5 = st.columns(2)
-    m4.metric("Total Tagihan (DPP + PPN)", f"Rp {total_bruto:,.2f}")
+    m4.metric("Total Tagihan / Kwitansi (DPP + PPN)", f"Rp {total_tagihan:,.2f}")
     m5.metric("Net Payment (Dibayar ke Vendor)", f"Rp {net_payment:,.2f}")
 
 # 4. KONTEN CONVERTER PDF TO EXCEL (EXISTING CORE)
