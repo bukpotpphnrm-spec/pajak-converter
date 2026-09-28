@@ -28,6 +28,7 @@ def process_rename_fp(uploaded_files):
         for file in uploaded_files:
             filename = file.name
             try:
+                file.seek(0)
                 reader = PdfReader(file)
                 text = ""
                 for page in reader.pages:
@@ -63,6 +64,7 @@ def process_rename_unifikasi(uploaded_files):
         for file in uploaded_files:
             filename = file.name
             try:
+                file.seek(0)
                 reader = PdfReader(file)
                 text = ""
                 for page in reader.pages:
@@ -95,7 +97,7 @@ def process_rename_unifikasi(uploaded_files):
     return output_zip, results
 
 # ==========================================
-# 1. PARSER FAKTUR PAJAK KELUARAN (STABLE CORETAX PARSER)
+# 1. PARSER FAKTUR PAJAK KELUARAN
 # ==========================================
 def parse_faktur(pdf_file):
     items_data = []
@@ -107,7 +109,6 @@ def parse_faktur(pdf_file):
             if t:
                 full_text += t + "\n"
 
-        # --- 1. KODE/NO FAKTUR, TANGGAL & REFERENSI ---
         no_fp = None
         nsfp_m = re.search(
             r"(?:Kode|Nomor)\s*(?:dan\s*Nomor\s*Seri)?\s*Faktur\s*Pajak\s*:\s*([\d\.\-]+)",
@@ -133,11 +134,8 @@ def parse_faktur(pdf_file):
         if ref_m:
             referensi = ref_m.group(1).strip()
 
-        # --- 2. PEMISAHAN BLOK PENJUAL & PEMBELI ---
         pkp_nama, pkp_alamat, pkp_npwp, pkp_nitku = None, None, None, None
-        pem_nama, pem_alamat, pem_npwp, pem_nik, pem_nitku = (
-            None, None, None, None, None,
-        )
+        pem_nama, pem_alamat, pem_npwp, pem_nik, pem_nitku = None, None, None, None, None
 
         split_pembeli = re.split(
             r"Pembeli\s*Barang\s*Kena\s*Pajak\s*/\s*Penerima\s*Jasa\s*Kena\s*Pajak",
@@ -159,7 +157,6 @@ def parse_faktur(pdf_file):
             left_text = full_text
             right_text = full_text
 
-        # --- PARSING BLOK PENJUAL ---
         p_nm = re.search(r"Nama\s*:\s*([^\n]+)", left_text, re.IGNORECASE)
         if p_nm:
             pkp_nama = p_nm.group(1).strip()
@@ -180,7 +177,6 @@ def parse_faktur(pdf_file):
         if p_npwp:
             pkp_npwp = re.sub(r"\D", "", p_npwp.group(1))
 
-        # --- PARSING BLOK PEMBELI ---
         b_nm = re.search(r"Nama\s*:\s*([^\n]+)", right_text, re.IGNORECASE)
         if b_nm:
             pem_nama = b_nm.group(1).strip()
@@ -218,7 +214,6 @@ def parse_faktur(pdf_file):
                 else:
                     pem_npwp = raw_id
 
-        # --- 3. EKSTRAKSI TABEL BARANG ---
         raw_items = []
         for page in pdf.pages:
             tables = page.extract_tables()
@@ -234,13 +229,10 @@ def parse_faktur(pdf_file):
                         raw_items.append({
                             "NO": int(clean_row[0]),
                             "KODE BARANG": clean_row[1] if clean_row[1] else "-",
-                            "NAMA BARANG/JASA": re.sub(
-                                r"\s+", " ", clean_row[2]
-                            ).strip(),
+                            "NAMA BARANG/JASA": re.sub(r"\s+", " ", clean_row[2]).strip(),
                             "HARGA JUAL": int(h_str) if h_str.isdigit() else 0,
                         })
 
-        # --- 4. BINDING DATA KE DF ---
         if not raw_items:
             items_data.append({
                 "NO": 1,
@@ -337,9 +329,7 @@ def parse_nota_retur(pdf_file):
         else:
             fp_solo = re.search(r"\d{3}\.\d{3}-\d{2}\.\d{8}", text)
             if fp_solo:
-                data["No Faktur Pajak"] = fp_solo.group(0).replace(
-                    ".", ""
-                ).replace("-", "")
+                data["No Faktur Pajak"] = fp_solo.group(0).replace(".", "").replace("-", "")
 
         inv_match = re.search(
             r"\b([A-Z]\d{2}-\d{6}\s*/\s*[A-Z]\d{2}-\d{6})\b", text
@@ -400,15 +390,11 @@ def parse_bukpot(pdf_file):
 
         no_match = re.search(r"NOMOR\s*\n\s*([A-Z0-9]+)", text, re.IGNORECASE)
         if not no_match:
-            no_match = re.search(
-                r"\b([A-Z0-9]{8,15})\b(?=\s+\d{2}-\d{4})", text
-            )
+            no_match = re.search(r"\b([A-Z0-9]{8,15})\b(?=\s+\d{2}-\d{4})", text)
         if no_match:
             data["NOMOR BUKPOT"] = no_match.group(1).strip()
 
-        npwp_wp = re.search(
-            r"A\.1\s*NPWP\s*/\s*NIK\s*:\s*(\d+)", text, re.IGNORECASE
-        )
+        npwp_wp = re.search(r"A\.1\s*NPWP\s*/\s*NIK\s*:\s*(\d+)", text, re.IGNORECASE)
         if npwp_wp:
             data["NPWP / NIK"] = npwp_wp.group(1).strip()
 
@@ -416,15 +402,11 @@ def parse_bukpot(pdf_file):
         if nama_wp:
             data["NAMA"] = nama_wp.group(1).strip()
 
-        nitku_wp = re.search(
-            r"A\.3\s*NOMOR IDENTITAS[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        nitku_wp = re.search(r"A\.3\s*NOMOR IDENTITAS[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if nitku_wp:
             data["NITKU"] = nitku_wp.group(1).strip()
 
-        jenis_pph = re.search(
-            r"B\.2\s*Jenis PPh\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        jenis_pph = re.search(r"B\.2\s*Jenis PPh\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if jenis_pph:
             data["JENIS PPH"] = jenis_pph.group(1).strip()
 
@@ -441,72 +423,48 @@ def parse_bukpot(pdf_file):
             raw_obj = re.sub(r"B\.[567]", "", raw_obj)
             raw_obj = re.sub(r"\b\d{1,3}(?:\.\d{3})+\b", "", raw_obj)
             raw_obj = re.sub(r"\s+", " ", raw_obj).strip()
-            data["OBJEK PAJAK"] = re.sub(
-                r"\s+\d{1,2}(?:\,\d+)?\s*\d*$", "", raw_obj
-            )
+            data["OBJEK PAJAK"] = re.sub(r"\s+\d{1,2}(?:\,\d+)?\s*\d*$", "", raw_obj)
 
-        b_area = re.search(
-            r"KODE OBJEK PAJAK[\s\S]*?(?=B\.8|Dokumen Dasar)", text
-        )
+        b_area = re.search(r"KODE OBJEK PAJAK[\s\S]*?(?=B\.8|Dokumen Dasar)", text)
         if b_area:
-            b_nominals = re.findall(
-                r"\b\d{1,3}(?:\.\d{3})+\b", b_area.group(0)
-            )
+            b_nominals = re.findall(r"\b\d{1,3}(?:\.\d{3})+\b", b_area.group(0))
             if len(b_nominals) >= 2:
                 dpp_val = b_nominals[0].replace(".", "")
                 pph_val = b_nominals[-1].replace(".", "")
                 data["DPP"] = int(dpp_val) if dpp_val.isdigit() else 0
-                data["PAJAK PENGHASILAN"] = (
-                    int(pph_val) if pph_val.isdigit() else 0
-                )
+                data["PAJAK PENGHASILAN"] = int(pph_val) if pph_val.isdigit() else 0
 
             tarif_m = re.search(r"\b(\d{1,2}(?:\,\d+)?)\s*%", b_area.group(0))
             if not tarif_m:
-                tarif_m = re.search(
-                    r"\b(\d{1,2})\b(?=\s+\d{1,3}(?:\.\d{3})+)", b_area.group(0)
-                )
+                tarif_m = re.search(r"\b(\d{1,2})\b(?=\s+\d{1,3}(?:\.\d{3})+)", b_area.group(0))
             if tarif_m:
                 data["TARIF (%)"] = tarif_m.group(1).replace(",", ".")
 
-        tgl_doc = re.search(
-            r"Tanggal\s*:\s*([0-9]{1,2}\s+[A-Za-z]+\s+[0-9]{4})", text
-        )
+        tgl_doc = re.search(r"Tanggal\s*:\s*([0-9]{1,2}\s+[A-Za-z]+\s+[0-9]{4})", text)
         if tgl_doc:
             data["TANGGAL DOKUMEN"] = tgl_doc.group(1).strip()
 
-        no_doc = re.search(
-            r"B\.9\s*Nomor Dokumen\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        no_doc = re.search(r"B\.9\s*Nomor Dokumen\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if no_doc:
             data["NOMOR DOKUMEN"] = no_doc.group(1).strip()
 
-        npwp_pem = re.search(
-            r"C\.1\s*NPWP\s*/\s*NIK\s*:\s*(\d+)", text, re.IGNORECASE
-        )
+        npwp_pem = re.search(r"C\.1\s*NPWP\s*/\s*NIK\s*:\s*(\d+)", text, re.IGNORECASE)
         if npwp_pem:
             data["NPWP PENERBIT"] = npwp_pem.group(1).strip()
 
-        nitku_pem = re.search(
-            r"C\.2\s*NOMOR IDENTITAS[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        nitku_pem = re.search(r"C\.2\s*NOMOR IDENTITAS[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if nitku_pem:
             data["NITKU PENERBIT"] = nitku_pem.group(1).strip()
 
-        nama_pem = re.search(
-            r"C\.3\s*NAMA PEMOTONG[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        nama_pem = re.search(r"C\.3\s*NAMA PEMOTONG[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if nama_pem:
             data["NAMA PT PENERBIT"] = nama_pem.group(1).strip()
 
-        tgl_bukpot = re.search(
-            r"C\.4\s*TANGGAL\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        tgl_bukpot = re.search(r"C\.4\s*TANGGAL\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if tgl_bukpot:
             data["TANGGAL BUKPOT"] = tgl_bukpot.group(1).strip()
 
-        ttd = re.search(
-            r"C\.5\s*NAMA PENANDATANGAN\s*:\s*([^\n]+)", text, re.IGNORECASE
-        )
+        ttd = re.search(r"C\.5\s*NAMA PENANDATANGAN\s*:\s*([^\n]+)", text, re.IGNORECASE)
         if ttd:
             data["NAMA PENANDATANGAN"] = ttd.group(1).strip()
 
@@ -578,81 +536,68 @@ elif menu == "Rename Bukpot Unifikasi":
                 type="primary"
             )
 
-# 3. KALKULATOR PAJAK (SIMPLE & CLEAN VERSION)
+# 3. KALKULATOR PAJAK
 elif menu == "Kalkulator Pajak (PPN & PPh)":
-    st.header("🧮 Kalkulator Pajak (PPN 12% & PPh)")
-    st.caption("Hitung otomatis DPP, PPN 12%, PPh, dan Net Payment secara instan.")
+    st.header("🧮 Kalkulator Pajak (DPP Nilai Lain & Grossup PPh)")
+    st.caption("Akomodasi perhitungan DPP Nilai Lain (11/12), PPN 12%, dan Grossup PPh 23.")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        # Pilihan acuan input nominal
-        tipe_input = st.radio(
-            "Nominal yang Dimasukkan Adalah:",
-            ["Nilai DPP (Dasar Pengenaan Pajak)", "Nilai Gross (Inklusif PPN 12%)"]
-        )
-        
         input_val = st.number_input(
-            "Masukkan Nominal (Rp)",
+            "Masukkan NOMINAL (Rp)",
             min_value=0.0,
-            value=1000000.0,
-            step=50000.0,
+            value=3000000.0,
+            step=100000.0,
             format="%.2f"
         )
+        
+        use_dpp_nilai_lain = st.checkbox("Gunakan DPP Nilai Lain (11/12)", value=True)
+        use_grossup_pph = st.checkbox("Hitung Grossup PPh", value=True)
 
     with col2:
-        # Tarif PPN dikunci otomatis 12%
         TARIF_PPN = 12.0
         
         pph_options = {
-            "Tanpa PPh": 0.0,
             "PPh 23 - Jasa / Sewa Harta (2%)": 2.0,
             "PPh 22 - Pembelian Barang (1.5%)": 1.5,
             "PPh 4(2) - Sewa Tanah/Bangunan (10%)": 10.0,
-            "PPh 4(2) - Jasa Konstruksi (1.75%)": 1.75,
-            "PPh 4(2) - Jasa Konstruksi (2.65%)": 2.65,
-            "PPh 4(2) - Jasa Konstruksi (4%)": 4.0,
-            "Custom": -1.0
+            "Tanpa PPh": 0.0
         }
         selected_pph = st.selectbox("Jenis PPh", list(pph_options.keys()))
+        tarif_pph_val = pph_options[selected_pph]
 
-        if selected_pph == "Custom":
-            tarif_pph_val = st.number_input(
-                "Tarif PPh Custom (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=2.0,
-                step=0.1
-            )
-        else:
-            tarif_pph_val = pph_options[selected_pph]
-
-    # --- RUMUS PERHITUNGAN OTOMATIS ---
-    if tipe_input == "Nilai DPP (Dasar Pengenaan Pajak)":
-        dpp = input_val
+    # --- PERHITUNGAN OTOMATIS ---
+    if use_dpp_nilai_lain:
+        dpp_nilai_lain = input_val * (11 / 12)
     else:
-        # Grossup / Back-calculate DPP dari nilai inklusif PPN 12%
-        dpp = input_val / (1 + (TARIF_PPN / 100))
+        dpp_nilai_lain = input_val
 
-    ppn = dpp * (TARIF_PPN / 100)
-    pph = dpp * (tarif_pph_val / 100)
-    total_tagihan = dpp + ppn
-    net_payment = total_tagihan - pph
+    ppn = dpp_nilai_lain * (TARIF_PPN / 100)
 
-    # --- DISPLAY HASIL PERHITUNGAN ---
+    if tarif_pph_val > 0:
+        if use_grossup_pph:
+            pph = input_val * (tarif_pph_val / (100 - tarif_pph_val))
+        else:
+            pph = input_val * (tarif_pph_val / 100)
+    else:
+        pph = 0.0
+
+    total_grossup = input_val + ppn + pph
+
     st.markdown("---")
     st.subheader("📊 Hasil Perhitungan")
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("DPP (Dasar Pengenaan Pajak)", f"Rp {dpp:,.2f}")
-    m2.metric(f"PPN ({TARIF_PPN:.0f}%)", f"Rp {ppn:,.2f}")
-    m3.metric(f"PPh ({tarif_pph_val:.2f}%)", f"Rp {pph:,.2f}")
+    m1.metric("NOMINAL", f"Rp {input_val:,.2f}")
+    m2.metric("DPP NILAI LAIN (11/12)", f"Rp {dpp_nilai_lain:,.2f}")
+    m3.metric(f"PPN ({TARIF_PPN:.0f}%)", f"Rp {ppn:,.2f}")
 
     m4, m5 = st.columns(2)
-    m4.metric("Total Tagihan / Kwitansi (DPP + PPN)", f"Rp {total_tagihan:,.2f}")
-    m5.metric("Net Payment (Dibayar ke Vendor)", f"Rp {net_payment:,.2f}")
+    m4.metric(f"PPH ({tarif_pph_val:.1f}% {'Grossup' if use_grossup_pph else ''})", f"Rp {pph:,.2f}")
+    m5.metric("TOTAL GROSSUP", f"Rp {total_grossup:,.2f}")
 
-# 4. KONTEN CONVERTER PDF TO EXCEL (EXISTING CORE)
+# 4. CONVERTER PDF TO EXCEL
 else:
     doc_type = menu.replace("Converter ", "")
     st.header(f"📄 Converter {doc_type}")
@@ -705,19 +650,19 @@ else:
 
             if doc_type == "Faktur Pajak Keluaran":
                 st.dataframe(
-                    df.style.format({"HARGA JUAL": "{:,.0f}"}),
+                    df.fillna(0).style.format({"HARGA JUAL": "{:,.0f}"}),
                     use_container_width=True,
                 )
             elif doc_type == "Bukti Potong (Bukpot)":
                 st.dataframe(
-                    df.style.format(
+                    df.fillna(0).style.format(
                         {"DPP": "{:,.0f}", "PAJAK PENGHASILAN": "{:,.0f}"}
                     ),
                     use_container_width=True,
                 )
             elif doc_type == "Nota Retur":
                 st.dataframe(
-                    df.style.format(
+                    df.fillna(0).style.format(
                         {"DPP Retur": "{:,.0f}", "PPN Retur": "{:,.0f}"}
                     ),
                     use_container_width=True,
