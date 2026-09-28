@@ -527,7 +527,8 @@ menu = st.sidebar.radio(
         "Converter Nota Retur",
         "Converter Bukti Potong (Bukpot)",
         "Rename Faktur Pajak Keluaran",
-        "Rename Bukpot Unifikasi"
+        "Rename Bukpot Unifikasi",
+        "Kalkulator Pajak (PPN & PPh)"
     ]
 )
 
@@ -581,7 +582,60 @@ elif menu == "Rename Bukpot Unifikasi":
                 type="primary"
             )
 
-# 3. KONTEN CONVERTER PDF TO EXCEL (EXISTING CORE)
+# 3. KALKULATOR PAJAK (PPN & PPH)
+elif menu == "Kalkulator Pajak (PPN & PPh)":
+    st.header("🧮 Kalkulator Pajak (PPN & PPh)")
+    st.caption("Hitung otomatis DPP, PPN, PPh, dan Net Payment dari DPP maupun Nilai Inklusif (Gross).")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        calc_mode = st.radio("Metode Perhitungan", ["Dari DPP (Dasar Pengenaan Pajak)", "Dari Total Inklusif PPN (Gross)"])
+        input_val = st.number_input("Masukkan Nominal (Rp)", min_value=0.0, value=1000000.0, step=50000.0)
+
+    with col2:
+        tarif_ppn = st.number_input("Tarif PPN (%)", min_value=0.0, max_value=100.0, value=12.0, step=0.5)
+        
+        pph_options = {
+            "Tanpa PPh": 0.0,
+            "PPh 23 - Jasa / Sewa Harta (2%)": 2.0,
+            "PPh 22 - Pembelian Barang (1.5%)": 1.5,
+            "PPh 4(2) - Sewa Tanah/Bangunan (10%)": 10.0,
+            "PPh 4(2) - Jasa Konstruksi (1.75%)": 1.75,
+            "PPh 4(2) - Jasa Konstruksi (2.65%)": 2.65,
+            "PPh 4(2) - Jasa Konstruksi (4%)": 4.0,
+            "Custom": -1.0
+        }
+        selected_pph = st.selectbox("Jenis PPh", list(pph_options.keys()))
+        
+        if selected_pph == "Custom":
+            tarif_pph = st.number_input("Tarif PPh Custom (%)", min_value=0.0, max_value=100.0, value=2.0, step=0.1)
+        else:
+            tarif_pph = pph_options[selected_pph]
+
+    if calc_mode == "Dari DPP (Dasar Pengenaan Pajak)":
+        dpp = input_val
+    else:
+        dpp = input_val / (1 + (tarif_ppn / 100))
+
+    ppn = dpp * (tarif_ppn / 100)
+    pph = dpp * (tarif_pph / 100)
+    total_bruto = dpp + ppn
+    net_payment = total_bruto - pph
+
+    st.markdown("---")
+    st.subheader("📊 Hasil Perhitungan")
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("DPP (Dasar Pengenaan Pajak)", f"Rp {dpp:,.2f}")
+    m2.metric(f"PPN ({tarif_ppn:.1f}%)", f"Rp {ppn:,.2f}")
+    m3.metric(f"PPh ({tarif_pph:.2f}%)", f"Rp {pph:,.2f}")
+
+    m4, m5 = st.columns(2)
+    m4.metric("Total Tagihan (DPP + PPN)", f"Rp {total_bruto:,.2f}")
+    m5.metric("Net Payment (Dibayar ke Vendor)", f"Rp {net_payment:,.2f}")
+
+# 4. KONTEN CONVERTER PDF TO EXCEL (EXISTING CORE)
 else:
     doc_type = menu.replace("Converter ", "")
     st.header(f"📄 Converter {doc_type}")
