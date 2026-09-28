@@ -1,21 +1,98 @@
 import io
 import re
+import zipfile
 import pandas as pd
 import pdfplumber
+from pypdf import PdfReader
 import streamlit as st
 
-st.set_page_config(page_title="Pajak Document Converter", layout="wide")
-
-# Sidebar Pilihan Dokumen
-st.sidebar.title("📌 Pilihan Dokumen")
-doc_type = st.sidebar.radio(
-    "Pilih jenis dokumen yang ingin di-convert:",
-    ["Faktur Pajak Keluaran", "Nota Retur", "Bukti Potong (Bukpot)"],
+st.set_page_config(
+    page_title="Pajak Document Converter & Renamer",
+    page_icon="📄",
+    layout="wide"
 )
 
-# Header Utama
-st.title(f"📄 Converter {doc_type}")
+# ==========================================
+# HELPER FUNCTIONS UNTUK RENAMER
+# ==========================================
+def clean_filename(filename):
+    cleaned = re.sub(r'[\\/*?:"<>|]', '-', filename)
+    cleaned = ' '.join(cleaned.split()).strip()
+    return cleaned.rstrip(' -_')
 
+def process_rename_fp(uploaded_files):
+    output_zip = io.BytesIO()
+    results = []
+    
+    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for file in uploaded_files:
+            filename = file.name
+            try:
+                reader = PdfReader(file)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() or ""
+
+                match_ref = re.search(r'Referensi\s*:\s*([^\n\)]+)', text, re.IGNORECASE)
+
+                if match_ref:
+                    full_ref_text = match_ref.group(1).strip()
+                    code_match = re.search(r'([A-Z]{2,4}\d{4}[A-Z0-9]+)', full_ref_text)
+                    target_name = code_match.group(1) if code_match else full_ref_text
+
+                    clean_title = clean_filename(target_name)
+                    new_filename = f"{clean_title}.pdf"
+
+                    file.seek(0)
+                    zip_file.writestr(new_filename, file.read())
+                    results.append({"Nama Asli": filename, "Nama Baru": new_filename, "Status": "Berhasil"})
+                else:
+                    results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": "Gagal ('Referensi:' tidak ditemukan)"})
+
+            except Exception as e:
+                results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": f"Error ({e})"})
+
+    output_zip.seek(0)
+    return output_zip, results
+
+def process_rename_unifikasi(uploaded_files):
+    output_zip = io.BytesIO()
+    results = []
+
+    with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for file in uploaded_files:
+            filename = file.name
+            try:
+                reader = PdfReader(file)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() or ""
+
+                match = re.search(
+                    r'Nomor Dokumen\s*[:\s]*(.*?)(?=\bB\.10\b|Untuk Instansi Pemerintah|B\.11|Nomor SP2D|$)', 
+                    text, 
+                    re.IGNORECASE | re.DOTALL
+                )
+
+                if match:
+                    extracted_text = match.group(1).strip()
+                    clean_title = clean_filename(extracted_text)
+                    
+                    if clean_title:
+                        new_filename = f"{clean_title} PPH 23.pdf"
+                        file.seek(0)
+                        zip_file.writestr(new_filename, file.read())
+                        results.append({"Nama Asli": filename, "Nama Baru": new_filename, "Status": "Berhasil"})
+                    else:
+                        results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": "Gagal (Teks bersih kosong)"})
+                else:
+                    results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": "Gagal ('Nomor Dokumen' tidak ditemukan)"})
+
+            except Exception as e:
+                results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": f"Error ({e})"})
+
+    output_zip.seek(0)
+    return output_zip, results
 
 # ==========================================
 # 1. PARSER FAKTUR PAJAK KELUARAN (STABLE CORETAX PARSER)
@@ -99,7 +176,6 @@ def parse_faktur(pdf_file):
         if p_alm:
             pkp_alamat = re.sub(r"\s+", " ", p_alm.group(1)).strip()
 
-        # Tangkap NITKU Penjual dari format #22digit
         p_nitk = re.search(r"#\s*(\d{22})", left_text)
         if p_nitk:
             pkp_nitku = p_nitk.group(1)
@@ -113,7 +189,6 @@ def parse_faktur(pdf_file):
         if b_nm:
             pem_nama = b_nm.group(1).strip()
 
-        # Ekstraksi Alamat tanpa mengikutkan teks setelah #
         b_alm = re.search(
             r"Alamat\s*:\s*([\s\S]*?)(?=\n?\s*#|\n?\s*(?:NPWP|NIK|NITKU|$))",
             right_text,
@@ -122,17 +197,14 @@ def parse_faktur(pdf_file):
         if b_alm:
             pem_alamat = re.sub(r"\s+", " ", b_alm.group(1)).strip()
 
-        # Tangkap NITKU Pembeli dari format #22digit
         b_nitk = re.search(r"#\s*(\d{22})", right_text)
         if b_nitk:
             pem_nitku = b_nitk.group(1)
 
-        # Ekstraksi NPWP
         b_npwp = re.search(r"NPWP[^\n:]*:\s*([\d\.\-]+)", right_text, re.IGNORECASE)
         if b_npwp:
             pem_npwp = re.sub(r"\D", "", b_npwp.group(1))
 
-        # Ekstraksi NIK
         b_nik = re.search(r"NIK[^\n:]*:\s*([\d\.\-]+)", right_text, re.IGNORECASE)
         if b_nik:
             pem_nik = re.sub(r"\D", "", b_nik.group(1))
@@ -223,7 +295,6 @@ def parse_faktur(pdf_file):
 
     return items_data
 
-
 # ==========================================
 # 2. PARSER NOTA RETUR
 # ==========================================
@@ -299,7 +370,6 @@ def parse_nota_retur(pdf_file):
             data["PPN Retur"] = int(ppn_str) if ppn_str.isdigit() else 0
 
     return [data]
-
 
 # ==========================================
 # 3. PARSER BUKTI POTONG (BUKPOT UNIFIKASI)
@@ -446,90 +516,150 @@ def parse_bukpot(pdf_file):
 
     return [data]
 
+# ==========================================
+# SIDEBAR NAVIGATION
+# ==========================================
+st.sidebar.title("📌 Pilihan Dokumen & Layanan")
+menu = st.sidebar.radio(
+    "Pilih Layanan:",
+    [
+        "Converter Faktur Pajak Keluaran",
+        "Converter Nota Retur",
+        "Converter Bukti Potong (Bukpot)",
+        "Rename Faktur Pajak Keluaran",
+        "Rename Bukpot Unifikasi"
+    ]
+)
 
 # ==========================================
 # EXECUTION / STREAMLIT UI
 # ==========================================
 
-uploaded_files = st.file_uploader(
-    f"Upload File PDF ({doc_type})", type=["pdf"], accept_multiple_files=True
-)
+# 1. RENAME FAKTUR PAJAK KELUARAN
+if menu == "Rename Faktur Pajak Keluaran":
+    st.header("🏷️ Rename Auto - Faktur Pajak Keluaran")
+    st.caption("Upload multiple PDF Faktur Pajak Keluaran untuk di-rename otomatis berdasarkan Kode/Nomor Referensi.")
 
-if uploaded_files:
-    all_rows = []
-    for pdf_file in uploaded_files:
-        try:
+    uploaded_files = st.file_uploader("Upload File PDF", type=["pdf"], accept_multiple_files=True)
+
+    if uploaded_files:
+        if st.button("🚀 Proses Rename", type="primary"):
+            with st.spinner("Memproses dan merename file PDF..."):
+                zip_data, results = process_rename_fp(uploaded_files)
+                
+            st.success("Proses Rename Selesai!")
+            st.dataframe(pd.DataFrame(results), use_container_width=True)
+
+            st.download_button(
+                label="📦 Download Semua File (ZIP)",
+                data=zip_data,
+                file_name="Faktur_Pajak_Renamed.zip",
+                mime="application/zip",
+                type="primary"
+            )
+
+# 2. RENAME BUKPOT UNIFIKASI
+elif menu == "Rename Bukpot Unifikasi":
+    st.header("🏷️ Rename Auto - Bukpot Unifikasi (PPh 23)")
+    st.caption("Upload multiple PDF Bukpot Unifikasi untuk di-rename otomatis berdasarkan Nomor Dokumen.")
+
+    uploaded_files = st.file_uploader("Upload File PDF", type=["pdf"], accept_multiple_files=True)
+
+    if uploaded_files:
+        if st.button("🚀 Proses Rename", type="primary"):
+            with st.spinner("Memproses dan merename file PDF..."):
+                zip_data, results = process_rename_unifikasi(uploaded_files)
+                
+            st.success("Proses Rename Selesai!")
+            st.dataframe(pd.DataFrame(results), use_container_width=True)
+
+            st.download_button(
+                label="📦 Download Semua File (ZIP)",
+                data=zip_data,
+                file_name="Bukpot_Unifikasi_Renamed.zip",
+                mime="application/zip",
+                type="primary"
+            )
+
+# 3. KONTEN CONVERTER PDF TO EXCEL (EXISTING CORE)
+else:
+    doc_type = menu.replace("Converter ", "")
+    st.header(f"📄 Converter {doc_type}")
+
+    uploaded_files = st.file_uploader(
+        f"Upload File PDF ({doc_type})", type=["pdf"], accept_multiple_files=True
+    )
+
+    if uploaded_files:
+        all_rows = []
+        for pdf_file in uploaded_files:
+            try:
+                if doc_type == "Faktur Pajak Keluaran":
+                    rows = parse_faktur(pdf_file)
+                elif doc_type == "Nota Retur":
+                    rows = parse_nota_retur(pdf_file)
+                elif doc_type == "Bukti Potong (Bukpot)":
+                    rows = parse_bukpot(pdf_file)
+
+                all_rows.extend(rows)
+            except Exception as e:
+                st.error(f"Gagal memproses file {pdf_file.name}: {e}")
+
+        if all_rows:
+            df = pd.DataFrame(all_rows)
+
             if doc_type == "Faktur Pajak Keluaran":
-                rows = parse_faktur(pdf_file)
-            elif doc_type == "Nota Retur":
-                rows = parse_nota_retur(pdf_file)
+                target_columns = [
+                    "NO",
+                    "KODE DAN NOMOR SERI FP",
+                    "PKP - NAMA",
+                    "PKP - ALAMAT",
+                    "PKP - NPWP",
+                    "PKP - NITKU",
+                    "PEMBELI - NAMA",
+                    "PEMBELI - ALAMAT",
+                    "PEMBELI - NPWP",
+                    "PEMBELI - NIK",
+                    "PEMBELI - NITKU",
+                    "KODE BARANG",
+                    "NAMA BARANG/JASA",
+                    "HARGA JUAL",
+                    "TANGGAL FP",
+                    "REFERENSI",
+                ]
+                existing_cols = [c for c in target_columns if c in df.columns]
+                df = df[existing_cols]
+
+            st.subheader(f"Hasil Ekstraksi Data ({len(df)} Baris)")
+
+            if doc_type == "Faktur Pajak Keluaran":
+                st.dataframe(
+                    df.style.format({"HARGA JUAL": "{:,.0f}"}),
+                    use_container_width=True,
+                )
             elif doc_type == "Bukti Potong (Bukpot)":
-                rows = parse_bukpot(pdf_file)
+                st.dataframe(
+                    df.style.format(
+                        {"DPP": "{:,.0f}", "PAJAK PENGHASILAN": "{:,.0f}"}
+                    ),
+                    use_container_width=True,
+                )
+            elif doc_type == "Nota Retur":
+                st.dataframe(
+                    df.style.format(
+                        {"DPP Retur": "{:,.0f}", "PPN Retur": "{:,.0f}"}
+                    ),
+                    use_container_width=True,
+                )
 
-            all_rows.extend(rows)
-        except Exception as e:
-            st.error(f"Gagal memproses file {pdf_file.name}: {e}")
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="Data_Rekap")
+            excel_data = output.getvalue()
 
-    if all_rows:
-        df = pd.DataFrame(all_rows)
-
-        # Urutan Kolom Faktur Pajak Keluaran
-        if doc_type == "Faktur Pajak Keluaran":
-            target_columns = [
-                "NO",
-                "KODE DAN NOMOR SERI FP",
-                "PKP - NAMA",
-                "PKP - ALAMAT",
-                "PKP - NPWP",
-                "PKP - NITKU",
-                "PEMBELI - NAMA",
-                "PEMBELI - ALAMAT",
-                "PEMBELI - NPWP",
-                "PEMBELI - NIK",
-                "PEMBELI - NITKU",
-                "KODE BARANG",
-                "NAMA BARANG/JASA",
-                "HARGA JUAL",
-                "TANGGAL FP",
-                "REFERENSI",
-            ]
-            existing_cols = [c for c in target_columns if c in df.columns]
-            df = df[existing_cols]
-
-        st.subheader(f"Hasil Ekstraksi Data ({len(df)} Baris)")
-
-        # Display dengan Formatting
-        if doc_type == "Faktur Pajak Keluaran":
-            st.dataframe(
-                df.style.format({"HARGA JUAL": "{:,.0f}"}),
-                use_container_width=True,
+            st.download_button(
+                label="📥 Download Data Excel",
+                data=excel_data,
+                file_name=f"Hasil_Export_{doc_type.replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-        elif doc_type == "Bukti Potong (Bukpot)":
-            st.dataframe(
-                df.style.format(
-                    {"DPP": "{:,.0f}", "PAJAK PENGHASILAN": "{:,.0f}"}
-                ),
-                use_container_width=True,
-            )
-        elif doc_type == "Nota Retur":
-            st.dataframe(
-                df.style.format(
-                    {"DPP Retur": "{:,.0f}", "PPN Retur": "{:,.0f}"}
-                ),
-                use_container_width=True,
-            )
-
-        # Export Excel
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Data_Rekap")
-        excel_data = output.getvalue()
-
-        st.download_button(
-            label="📥 Download Data Excel",
-            data=excel_data,
-            file_name=f"Hasil_Export_{doc_type.replace(' ', '_')}.xlsx",
-            mime=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-        )
