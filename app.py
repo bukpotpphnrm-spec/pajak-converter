@@ -1,9 +1,6 @@
 import io
 import re
 import zipfile
-import pandas as pd
-import pdfplumber
-from pypdf import PdfReader
 import streamlit as st
 
 st.set_page_config(
@@ -83,15 +80,7 @@ def process_rename_unifikasi(uploaded_files):
                     if clean_title:
                         new_filename = f"{clean_title} PPH 23.pdf"
                         file.seek(0)
-                        zip_file.writestr(new_filename, file.read())
-                        results.append({"Nama Asli": filename, "Nama Baru": new_filename, "Status": "Berhasil"})
-                    else:
-                        results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": "Gagal (Teks bersih kosong)"})
-                else:
-                    results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": "Gagal ('Nomor Dokumen' tidak ditemukan)"})
-
-            except Exception as e:
-                results.append({"Nama Asli": filename, "Nama Baru": "-", "Status": f"Error ({e})"})
+         : "-", "Status": f"Error ({e})"})
 
     output_zip.seek(0)
     return output_zip, results
@@ -185,7 +174,6 @@ def parse_faktur(pdf_file):
             r"Alamat\s*:\s*([\s\S]*?)(?=\n?\s*#|\n?\s*(?:NPWP|NIK|NITKU|$))",
             right_text,
             re.IGNORECASE,
-        )
         if b_alm:
             pem_alamat = re.sub(r"\s+", " ", b_alm.group(1)).strip()
 
@@ -258,23 +246,7 @@ def parse_faktur(pdf_file):
             for item in raw_items:
                 if item["NO"] not in seen_no:
                     seen_no.add(item["NO"])
-                    unique_items.append(item)
-
-            unique_items = sorted(unique_items, key=lambda x: x["NO"])
-            for item in unique_items:
-                items_data.append({
-                    "NO": item["NO"],
-                    "KODE DAN NOMOR SERI FP": no_fp,
-                    "PKP - NAMA": pkp_nama,
-                    "PKP - ALAMAT": pkp_alamat,
-                    "PKP - NPWP": pkp_npwp,
-                    "PKP - NITKU": pkp_nitku,
-                    "PEMBELI - NAMA": pem_nama,
-                    "PEMBELI - ALAMAT": pem_alamat,
-                    "PEMBELI - NPWP": pem_npwp,
-                    "PEMBELI - NIK": pem_nik,
-                    "PEMBELI - NITKU": pem_nitku,
-                    "KODE BARANG": item["KODE BARANG"],
+        
                     "NAMA BARANG/JASA": item["NAMA BARANG/JASA"],
                     "HARGA JUAL": item["HARGA JUAL"],
                     "TANGGAL FP": tgl_fp,
@@ -318,18 +290,6 @@ def parse_nota_retur(pdf_file):
         if npwp_match:
             data["NPWP PT"] = npwp_match.group(0).strip()
 
-        fp_match = re.search(
-            r"(\d{3}\.\d{3}-\d{2}\.\d{8})\s+(\d{2}/\d{2}/\d{4})", text
-        )
-        if fp_match:
-            data["No Faktur Pajak"] = (
-                fp_match.group(1).replace(".", "").replace("-", "")
-            )
-            data["Tanggal Faktur Pajak"] = fp_match.group(2)
-        else:
-            fp_solo = re.search(r"\d{3}\.\d{3}-\d{2}\.\d{8}", text)
-            if fp_solo:
-                data["No Faktur Pajak"] = fp_solo.group(0).replace(".", "").replace("-", "")
 
         inv_match = re.search(
             r"\b([A-Z]\d{2}-\d{6}\s*/\s*[A-Z]\d{2}-\d{6})\b", text
@@ -394,21 +354,6 @@ def parse_bukpot(pdf_file):
         if no_match:
             data["NOMOR BUKPOT"] = no_match.group(1).strip()
 
-        npwp_wp = re.search(r"A\.1\s*NPWP\s*/\s*NIK\s*:\s*(\d+)", text, re.IGNORECASE)
-        if npwp_wp:
-            data["NPWP / NIK"] = npwp_wp.group(1).strip()
-
-        nama_wp = re.search(r"A\.2\s*NAMA\s*:\s*([^\n]+)", text, re.IGNORECASE)
-        if nama_wp:
-            data["NAMA"] = nama_wp.group(1).strip()
-
-        nitku_wp = re.search(r"A\.3\s*NOMOR IDENTITAS[^\n]*\s*:\s*([^\n]+)", text, re.IGNORECASE)
-        if nitku_wp:
-            data["NITKU"] = nitku_wp.group(1).strip()
-
-        jenis_pph = re.search(r"B\.2\s*Jenis PPh\s*:\s*([^\n]+)", text, re.IGNORECASE)
-        if jenis_pph:
-            data["JENIS PPH"] = jenis_pph.group(1).strip()
 
         kode_obj = re.search(r"(?:B\.3\s*)?(\d{2}-\d{3}-\d{2})", text)
         if kode_obj:
@@ -552,8 +497,7 @@ elif menu == "Kalkulator Pajak (PPN & PPh)":
             format="%.2f"
         )
         
-        use_dpp_nilai_lain = st.checkbox("Gunakan DPP Nilai Lain (11/12)", value=True)
-        use_grossup_pph = st.checkbox("Hitung Grossup PPh", value=True)
+        use_dpp_nilai_lain = st.checkbox("Gunakan DPP Nilai Lain (11/12)", valu
 
     with col2:
         TARIF_PPN = 12.0
@@ -615,11 +559,7 @@ else:
                 elif doc_type == "Nota Retur":
                     rows = parse_nota_retur(pdf_file)
                 elif doc_type == "Bukti Potong (Bukpot)":
-                    rows = parse_bukpot(pdf_file)
-
-                all_rows.extend(rows)
-            except Exception as e:
-                st.error(f"Gagal memproses file {pdf_file.name}: {e}")
+        le.name}: {e}")
 
         if all_rows:
             df = pd.DataFrame(all_rows)
@@ -669,11 +609,7 @@ else:
                 )
 
             output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df.to_excel(writer, index=False, sheet_name="Data_Rekap")
-            excel_data = output.getvalue()
-
-            st.download_button(
+          
                 label="📥 Download Data Excel",
                 data=excel_data,
                 file_name=f"Hasil_Export_{doc_type.replace(' ', '_')}.xlsx",
